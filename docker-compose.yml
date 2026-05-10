@@ -1,0 +1,93 @@
+version: "3.9"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DDWorks-Mini Docker Compose
+#
+# 서비스 구성:
+#   neo4j        : 그래프 DB (포트 7474, 7687)
+#   agent-service: LangGraph AI 에이전트 (포트 8001)
+#   main-service : FastAPI Gateway (포트 8000)
+#
+# 실행 명령:
+#   docker-compose up -d
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── Neo4j 그래프 DB ──────────────────────────────────────────────────────
+  neo4j:
+    image: neo4j:5.25-community
+    container_name: ddworks-neo4j
+    ports:
+      - "7474:7474"  # Neo4j Browser (웹 UI)
+      - "7687:7687"  # Bolt 프로토콜 (Python 드라이버 연결)
+    environment:
+      NEO4J_AUTH: "neo4j/ddworks1234"
+      NEO4J_PLUGINS: '["apoc"]'          # APOC 플러그인 (그래프 유틸리티)
+      NEO4J_dbms_memory_heap_maxSize: "1G"
+      NEO4J_dbms_memory_pagecache_size: "512M"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD", "neo4j", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ddworks-net
+
+  # ── Agent Service (AI 에이전트, LangGraph) ────────────────────────────────
+  agent-service:
+    build:
+      context: .
+      dockerfile: agent-service/Dockerfile
+    container_name: ddworks-agent
+    ports:
+      - "8001:8001"
+    environment:
+      # Neo4j: Docker 네트워크 내부 서비스명 사용
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ddworks1234
+      # LLM (host의 .env에서 전달)
+      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+      LLM_MODEL: ${LLM_MODEL:-claude-sonnet-4-6}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    networks:
+      - ddworks-net
+    volumes:
+      - ./core:/app/core:ro          # core 모듈 공유
+    restart: unless-stopped
+
+  # ── Main Service (API Gateway) ────────────────────────────────────────────
+  main-service:
+    build:
+      context: .
+      dockerfile: main-service/Dockerfile
+    container_name: ddworks-main
+    ports:
+      - "8000:8000"
+    environment:
+      # Agent Service: Docker 네트워크 내부 서비스명 사용
+      AGENT_SERVICE_URL: http://agent-service:8001
+      CONSISTENCY_TOLERANCE_M: ${CONSISTENCY_TOLERANCE_M:-0.05}
+    depends_on:
+      - agent-service
+    networks:
+      - ddworks-net
+    volumes:
+      - ./core:/app/core:ro          # core 모듈 공유
+    restart: unless-stopped
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+
+networks:
+  ddworks-net:
+    driver: bridge

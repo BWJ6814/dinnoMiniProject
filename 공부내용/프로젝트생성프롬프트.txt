@@ -1,0 +1,43 @@
+당신은 반도체 플랜트 설계 솔루션 전문 기업 '디노(DINNO)'의 시니어 AI 연구개발자입니다. 
+저는 신입 AI 엔지니어로서, 회사의 메인 플랫폼인 'DDWorks'의 축소판인 "DDWorks-Mini" 백엔드 프로젝트를 개발하려고 합니다. 
+
+이 프로젝트는 FastAPI를 통신 기반으로 하여, 반도체 FAB 라인의 '스마트 HookUp 배관 설계'와 'As-Built vs As-Designed 정합성 검증' 기능을 수행하는 Multi-step AI Agent 파이프라인을 구축하는 것입니다.
+
+아래 기술 스택과 요구사항을 완벽하게 충족하는 프로젝트 폴더 구조와 핵심 코드(보일러플레이트 및 비즈니스 로직)를 작성해주세요.
+또한 반드시 실행이 가능하게 진행을하고 진행순서도 md파일도 정리해주어야합니다.
+네트워크 경험을 위해서도 서버를 약간은 분리를 해서 서로 호출하는 형태이어야합니다
+
+[1. 기술 스택]
+- 백엔드 프레임워크: FastAPI, Pydantic (데이터 검증)
+- AI / LLM: LangChain, LangGraph (Multi-step 파이프라인 및 자율 판단 Agent 구현), OpenAI/Anthropic API
+- 그래프 DB & 자료구조: Neo4j (Cypher 쿼리 연동), NetworkX (인메모리 그래프 탐색)
+- 3D & 알고리즘: Open3D (Point Cloud 정합성 검증용), OR-Tools (배관 최적화)
+
+[2. 비즈니스 도메인 및 데이터 모델 정의]
+- Equipment(장비): 이름, 위치(x, y, z 3D 좌표), 속성(CCSS, Chamber 등)
+- Piping(배관 - Edge): 연결된 두 장비, 스펙(UHP Gas 등), 상태(As-Designed, As-Built)
+- 모든 데이터는 Pydantic 모델로 엄격하게 정의하고, Neo4j에 저장/조회하는 컨텍스트 매니저 기반 DB 핸들러를 구현하세요.
+
+[3. 핵심 기능 요구사항 (JD 기반 구현)]
+Feature A: 3D 설계용 자율 판단 AI Agent (LangGraph 활용)
+- 사용자가 "N2 가스 공급 장치에서 웨이퍼 챔버 A까지 최단 거리로 배관을 연결해줘. 단, 중간에 기둥(장애물)을 회피해야 해"라고 자연어로 요청(API Request)합니다.
+- LangGraph를 활용해 다음의 Multi-step 노드를 구성하세요:
+  1) 의도 분석 (LLM): 출발지, 목적지, 배관 스펙 추출
+  2) DB 조회 (Neo4j Tool): 해당 장비가 실제 그래프에 존재하는지, 3D 좌표는 무엇인지 조회
+  3) 최적 경로 계산 (NetworkX + OR-Tools Tool): 장애물을 회피하는 최단/최적 A* 또는 Dijkstra 알고리즘 수행
+  4) 설계 반영: 도출된 경로를 Neo4j에 'As-Designed' 상태의 새로운 Edge로 저장
+
+Feature B: As-Built vs As-Designed 정합성 검증 (특허 기술 모사)
+- 실제 시공된 현장의 가상 3D 스캔 데이터(Point Cloud)와 설계 도면 데이터 간의 오차를 검증하는 로직을 작성하세요.
+- Open3D 라이브러리를 사용하여 ICP (Iterative Closest Point) 알고리즘의 기초적인 뼈대 코드를 구현하고, 오차가 허용 범위(예: 5cm)를 넘으면 FastAPI에서 경고 알람을 리턴하도록 만드세요.
+
+[4. FastAPI 엔드포인트 명세]
+다음 API 엔드포인트를 구현해주세요.
+- POST /api/v1/agent/hookup-design : 자연어 요청을 받아 Feature A의 LangGraph Agent를 실행
+- POST /api/v1/verify/consistency : 두 개의 3D 좌표 셋(설계 vs 시공)을 받아 Feature B의 정합성 검증 수행
+- GET /api/v1/graph/equipment : Neo4j에 저장된 현재 장비 및 배관망 상태 조회
+
+[5. 출력 형태]
+- 디렉토리 구조 (routers, services, models, core, graph_agent 등)를 먼저 제시해주세요.
+- 각 파일별로 Python 코드를 작성해주되, 객체지향적이고 예외 처리가 철저해야 합니다.
+- 코드 중간중간 주니어 개발자가 공부할 수 있도록 "이 알고리즘(A*)을 선택한 이유", "LangGraph의 상태(State) 관리 원리" 등에 대한 상세한 주석을 달아주세요.

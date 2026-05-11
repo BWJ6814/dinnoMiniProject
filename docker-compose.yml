@@ -23,8 +23,6 @@ services:
     environment:
       NEO4J_AUTH: "neo4j/ddworks1234"
       NEO4J_PLUGINS: '["apoc"]'          # APOC 플러그인 (그래프 유틸리티)
-      NEO4J_dbms_memory_heap_maxSize: "1G"
-      NEO4J_dbms_memory_pagecache_size: "512M"
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
@@ -51,10 +49,11 @@ services:
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: ddworks1234
       # LLM (host의 .env에서 전달)
-      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
-      LLM_MODEL: ${LLM_MODEL:-claude-sonnet-4-6}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      LLM_PROVIDER: ${LLM_PROVIDER:-google}
+      LLM_MODEL: ${LLM_MODEL:-gemini-2.0-flash}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     depends_on:
       neo4j:
         condition: service_healthy

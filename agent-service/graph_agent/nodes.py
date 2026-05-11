@@ -33,7 +33,14 @@ def _get_llm():
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
     from core.config import settings
 
-    if settings.LLM_PROVIDER == "anthropic":
+    if settings.LLM_PROVIDER == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(
+            model=settings.LLM_MODEL,
+            google_api_key=settings.GOOGLE_API_KEY,
+            temperature=0,
+        )
+    elif settings.LLM_PROVIDER == "anthropic":
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(
             model=settings.LLM_MODEL,

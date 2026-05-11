@@ -47,33 +47,161 @@ ddworks-mini/
 
 ---
 
-## Step 0. 환경 설정
+## 네트워크 아키텍처
 
-### 0-1. Python 환경 생성
+이 프로젝트는 **3개의 독립 서버**로 구성된 마이크로서비스 구조입니다.
+
+```
+[외부 클라이언트 / curl / Swagger UI]
+            │
+            │  HTTP REST
+            ▼
+┌───────────────────────────────────────┐
+│  main-service  (FastAPI)   :8000      │
+│  역할: API Gateway                    │
+│  ─ 외부 요청의 단일 진입점           │
+│  ─ Open3D ICP 정합성 검증 (로컬 실행)│
+│  ─ agent-service를 HTTP로 호출        │
+└───────────────────┬───────────────────┘
+                    │
+                    │  HTTP REST (httpx AsyncClient)
+                    │  POST /internal/run-hookup-agent
+                    │  GET  /internal/equipment
+                    │  POST /internal/graph-query
+                    ▼
+┌───────────────────────────────────────┐
+│  agent-service  (FastAPI)   :8001     │
+│  역할: AI 추론 엔진                   │
+│  ─ LangGraph 5-노드 파이프라인 실행   │
+│  ─ GraphRAG (Vector + Cypher) 처리    │
+│  ─ NetworkX A* 경로 탐색             │
+│  ─ OR-Tools 최적화                   │
+└───────────────────┬───────────────────┘
+                    │
+                    │  Bolt Protocol (neo4j Python Driver)
+                    │  포트 7687
+                    ▼
+┌───────────────────────────────────────┐
+│  Neo4j  (Graph DB)                    │
+│   :7687  Bolt (Python 드라이버 연결) │
+│   :7474  Browser (웹 UI)             │
+│  역할: 배관망 지식 그래프 저장소      │
+│  ─ 장비·배관·장애물 노드/엣지 저장   │
+│  ─ Cypher 쿼리로 위상(Topology) 탐색 │
+└───────────────────────────────────────┘
+```
+
+### 각 서버의 역할
+
+| 서버 | 포트 | 역할 | 직접 접근 대상 |
+|---|---|---|---|
+| `main-service` | 8000 | API Gateway. 외부 공개 유일 창구 | 클라이언트(개발자, Swagger) |
+| `agent-service` | 8001 | AI 추론 엔진. 외부 비공개 내부 서버 | main-service만 호출 |
+| `Neo4j` | 7687/7474 | 배관망 그래프 DB | agent-service만 쿼리 |
+
+> `agent-service`는 외부에서 직접 쓰는 서버가 아닙니다.
+> `main-service`가 대신 호출해주는 **내부 전용 서버**입니다.
+> 이 구조 덕분에 AI 추론 서버만 GPU 머신으로 별도 스케일업이 가능합니다.
+
+### 요청별 통신 흐름
+
+**Feature A — Smart HookUp 배관 설계:**
+```
+Client
+  → POST :8000/api/v1/agent/hookup-design
+      → main-service: 요청 검증
+      → POST :8001/internal/run-hookup-agent  ← HTTP 호출
+          → agent-service: LangGraph 파이프라인 실행
+              Node 1: Bolt → Neo4j:7687  (장비 좌표·장애물 조회)
+              Node 2: HTTPS → Claude API  (라우팅 전략 수립)
+              Node 3: 인메모리 (A* + OR-Tools)
+                      Bolt → Neo4j:7687  (AS_DESIGNED 배관 저장)
+              Node 4: HTTPS → Claude API  (UHP 표준 자가 검증)
+              Node 5: 결과 포맷팅
+          ← JSON 응답
+      ← main-service: 응답 그대로 전달
+  ← Client
+```
+
+**Feature B — As-Built 정합성 검증:**
+```
+Client
+  → POST :8000/api/v1/verify/consistency
+      → main-service: Open3D ICP 로컬 실행  ← agent-service 호출 없음
+  ← Client  (RMSE, PASS/FAIL 반환)
+```
+
+**Feature C — 배관망 조회 / GraphRAG 질의:**
+```
+Client
+  → GET  :8000/api/v1/graph/equipment
+  → POST :8000/api/v1/graph/query
+      → main-service
+      → GET/POST :8001/internal/equipment|graph-query  ← HTTP 호출
+          → agent-service: Neo4j 조회 + GraphRAG 처리
+      ← 결과 반환
+  ← Client
+```
+
+---
+
+## Step 0. 환경 설정 (uv 기반)
+
+> **uv란?** Rust로 만든 초고속 Python 패키지·프로젝트 매니저.
+> `pip + venv + pip-tools`를 하나로 통합하며, 속도가 10~100배 빠릅니다.
+
+### 0-1. uv 설치
+
+```powershell
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# 설치 확인
+uv --version
+```
+
+### 0-2. 가상환경 생성 및 패키지 설치
 
 ```bash
-python -m venv .venv
+# 프로젝트 루트에서 실행
+# uv가 자동으로 .venv 생성 + requirements.txt 패키지 설치
+uv venv
+uv pip install -r requirements.txt
+```
 
+> **주의:** `open3d`는 Python 3.10까지 공식 지원합니다. 3.10.6은 정상 동작합니다.
+> `ortools` 설치 실패 시 optimizer.py의 그리디 폴백이 자동 실행됩니다.
+
+가상환경 활성화 (uv run을 쓰면 이 단계 생략 가능):
+```powershell
 # Windows
 .venv\Scripts\activate
-
-# Mac/Linux
-source .venv/bin/activate
 ```
 
-### 0-2. 패키지 설치
+### 0-3. uv로 서비스 실행 (활성화 없이도 가능)
 
 ```bash
-pip install -r requirements.txt
+# uv run은 자동으로 .venv를 찾아 실행합니다
+uv run python agent-service/main.py
+uv run python -m main_service.main
+uv run python core/seed_data.py
 ```
 
-> **주의:** `open3d`는 Python 3.11 이하에서만 설치됩니다.
-> `ortools`는 설치 실패 시 그리디 폴백 로직이 자동으로 사용됩니다.
-
-### 0-3. 환경 변수 설정
+### 0-4. 패키지 추가할 때
 
 ```bash
-cp .env.example .env
+# requirements.txt에 직접 추가 후
+uv pip install -r requirements.txt
+
+# 또는 단일 패키지만 추가
+uv pip install <패키지명>
+```
+
+### 0-5. 환경 변수 설정
+
+```powershell
+# Windows
+copy .env.example .env
 ```
 
 `.env` 파일을 열어 아래 값을 반드시 설정하세요:
@@ -128,11 +256,11 @@ Neo4j 브라우저: http://localhost:7474
 curl -X POST http://localhost:8000/api/v1/graph/seed
 ```
 
-### 방법 B: Python 직접 실행
+### 방법 B: uv로 직접 실행
 
 ```bash
-cd ddworks-mini
-python core/seed_data.py
+# 프로젝트 루트에서
+uv run python core/seed_data.py
 ```
 
 삽입 데이터:
@@ -144,20 +272,20 @@ python core/seed_data.py
 
 ## Step 3. 두 서비스 로컬 실행
 
-터미널 1 - Agent Service (포트 8001):
+터미널 1 — Agent Service (포트 8001):
 ```bash
-cd ddworks-mini/agent-service
-python main.py
+# 프로젝트 루트에서 실행
+uv run python agent-service/main.py
 ```
 
-터미널 2 - Main Service (포트 8000):
+터미널 2 — Main Service (포트 8000):
 ```bash
-cd ddworks-mini
-python -m main_service.main
-# 또는
-cd ddworks-mini/main-service
-python main.py
+# 프로젝트 루트에서 실행
+uv run python -m main_service.main
 ```
+
+> 두 터미널 모두 **프로젝트 루트**(`dinnoMiniProject/`)에서 실행해야 합니다.
+> `uv run`은 자동으로 `.venv`를 사용하므로 activate 불필요합니다.
 
 ---
 

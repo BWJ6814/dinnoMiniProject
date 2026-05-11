@@ -137,11 +137,18 @@ class GraphRAGService:
             self._vector_store = None
 
     def _setup_llm(self):
-        """설정에 따라 Claude 또는 OpenAI LLM을 초기화합니다."""
+        """설정에 따라 Google / Claude / OpenAI LLM을 초기화합니다."""
         from core.config import settings
 
         try:
-            if settings.LLM_PROVIDER == "anthropic":
+            if settings.LLM_PROVIDER == "google":
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                self._llm = ChatGoogleGenerativeAI(
+                    model=settings.LLM_MODEL,
+                    google_api_key=settings.GOOGLE_API_KEY,
+                    temperature=0,
+                )
+            elif settings.LLM_PROVIDER == "anthropic":
                 from langchain_anthropic import ChatAnthropic
                 self._llm = ChatAnthropic(
                     model=settings.LLM_MODEL,

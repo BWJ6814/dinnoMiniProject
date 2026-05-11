@@ -10,13 +10,14 @@ class Settings(BaseSettings):
     NEO4J_PASSWORD: str = "ddworks1234"
 
     # LLM API Keys
+    GOOGLE_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
 
     # 사용할 LLM 제공자 및 모델
-    # "anthropic" 또는 "openai" 중 선택
-    LLM_PROVIDER: str = "anthropic"
-    LLM_MODEL: str = "claude-sonnet-4-6"
+    # "google", "anthropic", "openai" 중 선택
+    LLM_PROVIDER: str = "google"
+    LLM_MODEL: str = "gemini-2.0-flash"
 
     # 마이크로서비스 간 통신 URL
     # main-service(8000)가 agent-service(8001)를 호출할 때 사용
